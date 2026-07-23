@@ -133,6 +133,7 @@ public final class PatternAnalyzer {
             for (Square target : vision(board, from)) {
                 Piece occupant = board.get(target);
                 if (occupant != null && occupant.color() != piece.color()) result.add(target);
+                else if (target.algebraic().equals(board.enPassant())) result.add(target);
             }
             return result;
         }
@@ -154,6 +155,7 @@ public final class PatternAnalyzer {
             next.move(from, to);
             if (!kingAttacked(next, piece.color())) legal.add(to);
         }
+        if (piece.type() == Type.KING) addCastlingMoves(board, from, piece, legal);
         return legal;
     }
 
@@ -170,6 +172,37 @@ public final class PatternAnalyzer {
             if (entry.getValue().color() == color.opposite() && vision(board, entry.getKey()).contains(king)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private void addCastlingMoves(Board board, Square from, Piece king, Set<Square> legal) {
+        int homeRank = king.color() == Color.WHITE ? 0 : 7;
+        if (from.file() != 4 || from.rank() != homeRank || kingAttacked(board, king.color())) return;
+        String rights = board.castlingRights();
+        char kingSide = king.color() == Color.WHITE ? 'K' : 'k';
+        char queenSide = king.color() == Color.WHITE ? 'Q' : 'q';
+        if (rights.indexOf(kingSide) >= 0
+                && empty(board, 5, homeRank) && empty(board, 6, homeRank)
+                && !attacked(board, new Square(5, homeRank), king.color().opposite())
+                && !attacked(board, new Square(6, homeRank), king.color().opposite())) {
+            legal.add(new Square(6, homeRank));
+        }
+        if (rights.indexOf(queenSide) >= 0
+                && empty(board, 1, homeRank) && empty(board, 2, homeRank) && empty(board, 3, homeRank)
+                && !attacked(board, new Square(3, homeRank), king.color().opposite())
+                && !attacked(board, new Square(2, homeRank), king.color().opposite())) {
+            legal.add(new Square(2, homeRank));
+        }
+    }
+
+    private boolean empty(Board board, int file, int rank) {
+        return board.get(new Square(file, rank)) == null;
+    }
+
+    private boolean attacked(Board board, Square target, Color attacker) {
+        for (var entry : board.pieces().entrySet()) {
+            if (entry.getValue().color() == attacker && vision(board, entry.getKey()).contains(target)) return true;
         }
         return false;
     }

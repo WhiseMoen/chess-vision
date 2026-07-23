@@ -2,11 +2,10 @@ package ru.chessvision.game;
 
 import ru.chessvision.core.*;
 
-public record Opening(String name, String family, String idea, String[] moves) {
-    private static final String START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1";
+public record Opening(String name, String family, String variation, String idea, String[] moves) {
 
     public Board position() {
-        Board board = Fen.parse(START);
+        Board board = Fen.parse(ChessPositions.START_FEN);
         for (String move : moves) {
             board.move(Square.fromAlgebraic(move.substring(0, 2)),
                     Square.fromAlgebraic(move.substring(2, 4)));
@@ -28,5 +27,7 @@ public record Opening(String name, String family, String idea, String[] moves) {
         return move.substring(0, 2) + "–" + move.substring(2, 4);
     }
 
-    @Override public String toString() { return name; }
+    @Override public String toString() {
+        return variation == null || variation.isBlank() ? name : name + " · " + variation;
+    }
 }

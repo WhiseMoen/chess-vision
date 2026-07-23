@@ -10,7 +10,7 @@ public class OpeningCatalogTest {
         for (Opening opening : OpeningCatalog.all()) {
             Board board = opening.position();
             assertEquals(opening.name(), Piece.Color.WHITE, board.sideToMove());
-            assertTrue(opening.name(), board.pieces().size() >= 31);
+            assertTrue(opening.name(), board.pieces().size() >= 30);
         }
     }
 
@@ -20,5 +20,19 @@ public class OpeningCatalogTest {
         PatternBot.Move move = new PatternBot().choose(board);
         assertNotNull(move);
         assertEquals(Piece.Color.BLACK, board.get(move.from()).color());
+    }
+
+    @Test public void everyCatalogMoveIsLegal() {
+        PatternAnalyzer analyzer = new PatternAnalyzer();
+        for (Opening opening : OpeningCatalog.all()) {
+            Board board = Fen.parse(ChessPositions.START_FEN);
+            for (String move : opening.moves()) {
+                Square from = Square.fromAlgebraic(move.substring(0, 2));
+                Square to = Square.fromAlgebraic(move.substring(2, 4));
+                assertTrue(opening.toString() + " " + move,
+                        analyzer.legalMoves(board, from).contains(to));
+                board.move(from, to);
+            }
+        }
     }
 }

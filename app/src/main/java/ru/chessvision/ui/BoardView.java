@@ -52,6 +52,7 @@ public final class BoardView extends View {
     private Listener listener;
     private Piece.Color allowedColor;
     private boolean inputEnabled = true;
+    private boolean hintsEnabled = true;
 
     private final int vision = Color.argb(125, 183, 227, 107);
     private final int danger = Color.argb(155, 239, 100, 86);
@@ -76,6 +77,14 @@ public final class BoardView extends View {
     public void setInputEnabled(boolean enabled) {
         this.inputEnabled = enabled;
         if (!enabled) selected = null;
+        invalidate();
+    }
+    public void setHintsEnabled(boolean enabled) {
+        hintsEnabled = enabled;
+        if (!enabled) {
+            overlayMode = OverlayMode.OVERVIEW;
+            selected = null;
+        }
         invalidate();
     }
     public Square selected() { return selected; }
@@ -105,7 +114,7 @@ public final class BoardView extends View {
                 paint.setColor((file + rank) % 2 == 1 ? theme.light : theme.dark);
                 canvas.drawRect(left, top, left + cell, top + cell, paint);
 
-                if (selected != null && analysis != null) {
+                if (hintsEnabled && selected != null && analysis != null) {
                     PieceInsight insight = analysis.pieces().get(selected);
                     if (selected.equals(square)) {
                         paint.setColor(Color.argb(170, 245, 196, 75));
@@ -123,7 +132,7 @@ public final class BoardView extends View {
                 Piece piece = board.get(square);
                 if (piece != null) {
                     PieceInsight insight = analysis == null ? null : analysis.pieces().get(square);
-                    if (overlayMode == OverlayMode.OVERVIEW && insight != null && insight.attackers() > insight.defenders()) {
+                    if (hintsEnabled && overlayMode == OverlayMode.OVERVIEW && insight != null && insight.attackers() > insight.defenders()) {
                         paint.setColor(danger);
                         canvas.drawCircle(left + cell / 2, top + cell / 2, cell * .43f, paint);
                     }
@@ -166,7 +175,7 @@ public final class BoardView extends View {
     }
 
     private void drawCues(Canvas canvas, float cell) {
-        if (analysis == null || overlayMode == OverlayMode.OVERVIEW) return;
+        if (!hintsEnabled || analysis == null || overlayMode == OverlayMode.OVERVIEW) return;
         List<VisualCue> cues = analysis.visualCues();
         int drawn = 0;
         for (VisualCue cue : cues) {

@@ -71,4 +71,34 @@ public class PatternAnalyzerTest {
         assertTrue(analyzer.legalMoves(board, Square.fromAlgebraic("e2"))
                 .contains(Square.fromAlgebraic("e3")));
     }
+
+    @Test public void fenRoundTripPreservesSideCastlingAndEnPassant() {
+        String fen = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq e3 0 1";
+        Board board = Fen.parse(fen);
+        String written = Fen.write(board);
+        assertTrue(written.contains(" b KQkq e3 "));
+        assertEquals(6, Fen.parse(written).pieces().size());
+    }
+
+    @Test public void castlingMovesKingAndRook() {
+        Board board = Fen.parse("4k3/8/8/8/8/8/8/4K2R w K - 0 1");
+        Square e1 = Square.fromAlgebraic("e1"), g1 = Square.fromAlgebraic("g1");
+        assertTrue(analyzer.legalMoves(board, e1).contains(g1));
+        board.move(e1, g1);
+        assertEquals(Piece.Type.KING, board.get(g1).type());
+        assertEquals(Piece.Type.ROOK, board.get(Square.fromAlgebraic("f1")).type());
+    }
+
+    @Test public void enPassantRemovesPassedPawn() {
+        Board board = Fen.parse("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1");
+        board.move(Square.fromAlgebraic("e5"), Square.fromAlgebraic("d6"));
+        assertNull(board.get(Square.fromAlgebraic("d5")));
+        assertEquals(Piece.Type.PAWN, board.get(Square.fromAlgebraic("d6")).type());
+    }
+
+    @Test public void pawnPromotesToQueen() {
+        Board board = Fen.parse("4k3/P7/8/8/8/8/8/4K3 w - - 0 1");
+        board.move(Square.fromAlgebraic("a7"), Square.fromAlgebraic("a8"));
+        assertEquals(Piece.Type.QUEEN, board.get(Square.fromAlgebraic("a8")).type());
+    }
 }

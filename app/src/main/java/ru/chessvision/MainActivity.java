@@ -16,7 +16,7 @@ import ru.chessvision.core.*;
 import ru.chessvision.ui.BoardView;
 
 public final class MainActivity extends Activity {
-    private static final String START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1";
+    private static final String START = ChessPositions.START_FEN;
     private static final String[] EXAMPLES = {
             START,
             "r2q1rk1/ppp2ppp/2npbn2/8/2B1P3/2NP1N2/PPP2PPP/R1BQR1K1 w - - 0 10",

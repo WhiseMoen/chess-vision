@@ -5,6 +5,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
@@ -28,6 +30,7 @@ public final class TrainingActivity extends Activity {
     private TextView idea;
     private TextView question;
     private TextView feedback;
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -150,7 +153,9 @@ public final class TrainingActivity extends Activity {
         Board board = Fen.parse(lesson.fen());
         boardView.setOverlayMode(BoardView.OverlayMode.OVERVIEW);
         boardView.setPosition(board, analyzer.analyze(board));
-        counter.setText(lesson.course().toUpperCase() + " · " + (index + 1) + "/" + visible.size());
+        long solved = visible.stream().filter(this::isSolved).count();
+        counter.setText(lesson.course().toUpperCase() + " · " + (index + 1) + "/" + visible.size() +
+                " · решено " + solved);
         title.setText(lesson.title());
         idea.setText(lesson.idea());
         question.setText(lesson.question());
@@ -163,10 +168,27 @@ public final class TrainingActivity extends Activity {
         Lesson lesson = current();
         if (!lesson.interactive()) return;
         boolean correct = from.algebraic().equals(lesson.expectedFrom()) && to.algebraic().equals(lesson.expectedTo());
-        feedback.setText(correct ? "Верно! " + lesson.answer() : "Пока нет. " + lesson.hint());
+        if (correct) {
+            getPreferences(MODE_PRIVATE).edit().putBoolean(progressKey(lesson), true).apply();
+            feedback.setText("Верно! " + lesson.answer() + "\nСледующая позиция откроется автоматически.");
+            counter.setText(lesson.course().toUpperCase() + " · решено " +
+                    visible.stream().filter(this::isSolved).count() + "/" + visible.size());
+            if (lessonIndex + 1 < visible.size()) handler.postDelayed(() -> showLesson(lessonIndex + 1), 1100);
+        } else {
+            feedback.setText("Этот ход не реализует главную идею. " + lesson.hint());
+        }
     }
 
     private Lesson current() { return visible.get(lessonIndex); }
+    private boolean isSolved(Lesson lesson) {
+        return getPreferences(MODE_PRIVATE).getBoolean(progressKey(lesson), false);
+    }
+    private String progressKey(Lesson lesson) { return lesson.course() + "|" + lesson.title(); }
+
+    @Override protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
 
     private LinearLayout card() {
         LinearLayout result = column();
