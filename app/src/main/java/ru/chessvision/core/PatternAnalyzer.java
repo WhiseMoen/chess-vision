@@ -83,6 +83,8 @@ public final class PatternAnalyzer {
         addLoosePieces(board, attacks, patterns);
         addCentralControl(attacks, patterns);
         addSynergiesAndForks(board, visualCues, patterns);
+        addLinePatterns(board, patterns);
+        addStructuralPatterns(board, attacks, patterns);
         patterns.sort(Comparator.comparingInt(p -> p.severity().ordinal()));
         if (patterns.isEmpty()) {
             patterns.add(new Pattern(Pattern.Severity.INFO, "Позиция устойчива",
@@ -139,6 +141,37 @@ public final class PatternAnalyzer {
             if (occupant == null || occupant.color() != piece.color()) result.add(target);
         }
         return result;
+    }
+
+    public Set<Square> legalMoves(Board board, Square from) {
+        Piece piece = board.get(from);
+        if (piece == null) return Set.of();
+        LinkedHashSet<Square> legal = new LinkedHashSet<>();
+        for (Square to : pseudoMoves(board, from)) {
+            Piece target = board.get(to);
+            if (target != null && target.type() == Type.KING) continue;
+            Board next = board.copy();
+            next.move(from, to);
+            if (!kingAttacked(next, piece.color())) legal.add(to);
+        }
+        return legal;
+    }
+
+    public boolean kingAttacked(Board board, Color color) {
+        Square king = null;
+        for (var entry : board.pieces().entrySet()) {
+            if (entry.getValue().color() == color && entry.getValue().type() == Type.KING) {
+                king = entry.getKey();
+                break;
+            }
+        }
+        if (king == null) return false;
+        for (var entry : board.pieces().entrySet()) {
+            if (entry.getValue().color() == color.opposite() && vision(board, entry.getKey()).contains(king)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<Square, Integer> attackCounts(Board board, Color color) {
@@ -214,6 +247,116 @@ public final class PatternAnalyzer {
                                 ". Проверьте, могут ли обе уйти или защититься одним темпом.", from));
             }
         }
+    }
+
+    private void addLinePatterns(Board board, List<Pattern> patterns) {
+        Set<String> found = new HashSet<>();
+        for (var entry : board.pieces().entrySet()) {
+            Piece source = entry.getValue();
+            int[][] directions = switch (source.type()) {
+                case BISHOP -> BISHOP;
+                case ROOK -> ROOK;
+                case QUEEN -> new int[][]{{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}};
+                default -> new int[0][0];
+            };
+            for (int[] direction : directions) {
+                List<Square> occupied = occupiedOnRay(board, entry.getKey(), direction);
+                if (occupied.size() < 2) continue;
+                Square firstSquare = occupied.get(0), secondSquare = occupied.get(1);
+                Piece first = board.get(firstSquare), second = board.get(secondSquare);
+                if (first.color() != source.color() && second.color() != source.color()) {
+                    if (second.type() == Type.KING && first.type() != Type.KING) {
+                        addUnique(patterns, found, "pin-" + firstSquare.algebraic(),
+                                new Pattern(Pattern.Severity.OPPORTUNITY,
+                                        "Связка на " + firstSquare.algebraic(),
+                                        source.type().russianName + " прижимает " + first.type().russianName.toLowerCase() +
+                                                " к королю. Усиливайте давление на связанную фигуру.", firstSquare));
+                    } else if (first.type() == Type.KING && second.type().value > 0) {
+                        addUnique(patterns, found, "skewer-" + entry.getKey().algebraic() + secondSquare.algebraic(),
+                                new Pattern(Pattern.Severity.OPPORTUNITY,
+                                        "Сквозной удар по линии",
+                                        "После ухода короля с " + firstSquare.algebraic() + " открывается " +
+                                                second.type().russianName.toLowerCase() + " на " + secondSquare.algebraic() + ".", entry.getKey()));
+                    } else {
+                        addUnique(patterns, found, "xray-" + entry.getKey().algebraic() + secondSquare.algebraic(),
+                                new Pattern(Pattern.Severity.INFO,
+                                        "Рентген по линии",
+                                        source.type().russianName + " уже направлен сквозь " + firstSquare.algebraic() +
+                                                " на цель " + secondSquare.algebraic() + ". Удаление промежуточной фигуры откроет луч.", entry.getKey()));
+                    }
+                } else if (first.color() == source.color()
+                        && sameLinePiece(first.type(), direction)
+                        && second.color() != source.color()) {
+                    addUnique(patterns, found, "battery-" + entry.getKey().algebraic() + firstSquare.algebraic(),
+                            new Pattern(Pattern.Severity.OPPORTUNITY,
+                                    "Батарея фигур",
+                                    source.type().russianName + " и " + first.type().russianName.toLowerCase() +
+                                            " усиливают одну линию к " + secondSquare.algebraic() + ".", firstSquare));
+                }
+            }
+        }
+    }
+
+    private void addStructuralPatterns(Board board, Map<Color, Map<Square, Integer>> attacks, List<Pattern> patterns) {
+        for (var entry : board.pieces().entrySet()) {
+            Square square = entry.getKey();
+            Piece piece = entry.getValue();
+            if (piece.type() == Type.KNIGHT && square.rank() >= 3 && square.rank() <= 4) {
+                boolean enemyPawnCanChallenge = false;
+                int enemyDirection = piece.color() == Color.WHITE ? -1 : 1;
+                int pawnRank = square.rank() - enemyDirection;
+                for (int file : new int[]{square.file() - 1, square.file() + 1}) {
+                    if (!inside(file, pawnRank)) continue;
+                    Piece candidate = board.get(new Square(file, pawnRank));
+                    if (candidate != null && candidate.color() != piece.color() && candidate.type() == Type.PAWN) {
+                        enemyPawnCanChallenge = true;
+                    }
+                }
+                int defenders = attacks.get(piece.color()).getOrDefault(square, 0);
+                if (!enemyPawnCanChallenge && defenders > 0) {
+                    patterns.add(new Pattern(Pattern.Severity.OPPORTUNITY,
+                            "Устойчивый форпост на " + square.algebraic(),
+                            "Конь защищён, и его нельзя прогнать пешкой. Это долговременная сила позиции.", square));
+                }
+            }
+            if (piece.type() == Type.PAWN) {
+                int behind = piece.color() == Color.WHITE ? square.rank() - 1 : square.rank() + 1;
+                boolean chain = false;
+                for (int file : new int[]{square.file() - 1, square.file() + 1}) {
+                    if (!inside(file, behind)) continue;
+                    Piece supporter = board.get(new Square(file, behind));
+                    if (supporter != null && supporter.color() == piece.color() && supporter.type() == Type.PAWN) {
+                        chain = true;
+                    }
+                }
+                if (chain && (square.file() == 3 || square.file() == 4)) {
+                    patterns.add(new Pattern(Pattern.Severity.INFO,
+                            "Пешечная цепь держит центр",
+                            "Пешка " + square.algebraic() + " поддержана сзади. Давите на основание чужой цепи, а не на вершину.", square));
+                }
+            }
+        }
+    }
+
+    private List<Square> occupiedOnRay(Board board, Square from, int[] direction) {
+        List<Square> result = new ArrayList<>();
+        int file = from.file() + direction[0], rank = from.rank() + direction[1];
+        while (inside(file, rank) && result.size() < 3) {
+            Square square = new Square(file, rank);
+            if (board.get(square) != null) result.add(square);
+            file += direction[0];
+            rank += direction[1];
+        }
+        return result;
+    }
+
+    private boolean sameLinePiece(Type type, int[] direction) {
+        boolean diagonal = direction[0] != 0 && direction[1] != 0;
+        return type == Type.QUEEN || (diagonal && type == Type.BISHOP) || (!diagonal && type == Type.ROOK);
+    }
+
+    private void addUnique(List<Pattern> patterns, Set<String> found, String key, Pattern pattern) {
+        if (found.add(key)) patterns.add(pattern);
     }
 
     private void addRays(Board board, Square from, int[][] directions, Set<Square> out) {

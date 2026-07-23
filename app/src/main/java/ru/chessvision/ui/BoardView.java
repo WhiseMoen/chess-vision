@@ -50,6 +50,8 @@ public final class BoardView extends View {
     private Analysis analysis;
     private Square selected;
     private Listener listener;
+    private Piece.Color allowedColor;
+    private boolean inputEnabled = true;
 
     private final int vision = Color.argb(125, 183, 227, 107);
     private final int danger = Color.argb(155, 239, 100, 86);
@@ -70,6 +72,12 @@ public final class BoardView extends View {
     }
 
     public void setListener(Listener listener) { this.listener = listener; }
+    public void setAllowedColor(Piece.Color color) { this.allowedColor = color; }
+    public void setInputEnabled(boolean enabled) {
+        this.inputEnabled = enabled;
+        if (!enabled) selected = null;
+        invalidate();
+    }
     public Square selected() { return selected; }
     public BoardTheme theme() { return theme; }
     public OverlayMode overlayMode() { return overlayMode; }
@@ -231,12 +239,12 @@ public final class BoardView extends View {
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
-        if (event.getAction() != MotionEvent.ACTION_UP || board == null) return true;
+        if (event.getAction() != MotionEvent.ACTION_UP || board == null || !inputEnabled) return true;
         int file = Math.min(7, Math.max(0, (int) (event.getX() / (getWidth() / 8f))));
         int rank = 7 - Math.min(7, Math.max(0, (int) (event.getY() / (getWidth() / 8f))));
         Square touched = new Square(file, rank);
         if (selected != null) {
-            Set<Square> moves = analyzer.pseudoMoves(board, selected);
+            Set<Square> moves = analyzer.legalMoves(board, selected);
             if (moves.contains(touched)) {
                 Square from = selected;
                 selected = null;
@@ -245,7 +253,9 @@ public final class BoardView extends View {
                 return true;
             }
         }
-        selected = board.get(touched) == null ? null : touched;
+        Piece touchedPiece = board.get(touched);
+        selected = touchedPiece == null || (allowedColor != null && touchedPiece.color() != allowedColor)
+                ? null : touched;
         if (listener != null) listener.onSquareSelected(touched);
         invalidate();
         return true;

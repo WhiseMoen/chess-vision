@@ -68,6 +68,25 @@ public final class MainActivity extends Activity {
         positionSummary.setLineSpacing(0, 1.15f);
         root.addView(positionSummary);
 
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        Button learn = button("Обучение");
+        Button play = button("Играть");
+        Button library = button("Учебники");
+        navigation.addView(learn, weighted());
+        LinearLayout.LayoutParams playParams = weighted();
+        playParams.setMargins(dp(8), 0, 0, 0);
+        navigation.addView(play, playParams);
+        LinearLayout.LayoutParams libraryParams = weighted();
+        libraryParams.setMargins(dp(8), 0, 0, 0);
+        navigation.addView(library, libraryParams);
+        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(46));
+        navParams.setMargins(0, dp(14), 0, 0);
+        root.addView(navigation, navParams);
+        learn.setOnClickListener(v -> startActivity(new Intent(this, TrainingActivity.class)));
+        play.setOnClickListener(v -> startActivity(new Intent(this, GameActivity.class)));
+        library.setOnClickListener(v -> showLibraryDialog());
+
         boardView = new BoardView(this);
         LinearLayout.LayoutParams boardParams = new LinearLayout.LayoutParams(-1, 0);
         boardParams.height = getResources().getDisplayMetrics().widthPixels - dp(32);
@@ -340,6 +359,32 @@ public final class MainActivity extends Activity {
                     boardView.setTheme(themes[which]);
                     getPreferences(MODE_PRIVATE).edit().putInt("board_theme", which).apply();
                     dialog.dismiss();
+                })
+                .setNegativeButton("Закрыть", null)
+                .show();
+    }
+
+    private void showLibraryDialog() {
+        String[] books = {
+                "Практика Chess Vision · 18 интерактивных уроков",
+                "Chess Fundamentals · Х. Р. Капабланка (public domain)",
+                "Chess Strategy · Эдвард Ласкер (public domain)",
+                "The Blue Book of Chess · Говард Стаунтон (public domain)"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Учебная библиотека")
+                .setItems(books, (dialog, which) -> {
+                    if (which == 0) {
+                        startActivity(new Intent(this, TrainingActivity.class));
+                    } else {
+                        String[] urls = {
+                                "",
+                                "https://www.gutenberg.org/ebooks/33870",
+                                "https://www.gutenberg.org/ebooks/5614",
+                                "https://www.gutenberg.org/ebooks/16377"
+                        };
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(urls[which])));
+                    }
                 })
                 .setNegativeButton("Закрыть", null)
                 .show();

@@ -57,4 +57,18 @@ public class PatternAnalyzerTest {
                         && c.from().equals(Square.fromAlgebraic("c3"))
                         && c.to().equals(Square.fromAlgebraic("d2"))));
     }
+
+    @Test public void detectsAbsolutePinOnKing() {
+        Board board = Fen.parse("7k/6r1/8/4B3/8/8/8/K7 w - - 0 1");
+        Analysis result = analyzer.analyze(board);
+        assertTrue(result.patterns().stream().anyMatch(p -> p.title().contains("Связка")));
+    }
+
+    @Test public void pinnedPieceCannotLegallyLeaveKing() {
+        Board board = Fen.parse("4r1k1/8/8/8/8/8/4R3/4K3 w - - 0 1");
+        assertFalse(analyzer.legalMoves(board, Square.fromAlgebraic("e2"))
+                .contains(Square.fromAlgebraic("d2")));
+        assertTrue(analyzer.legalMoves(board, Square.fromAlgebraic("e2"))
+                .contains(Square.fromAlgebraic("e3")));
+    }
 }
