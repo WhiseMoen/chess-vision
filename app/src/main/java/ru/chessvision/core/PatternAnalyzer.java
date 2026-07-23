@@ -18,6 +18,7 @@ public final class PatternAnalyzer {
 
         Map<Square, PieceInsight> insights = new LinkedHashMap<>();
         List<Pattern> patterns = new ArrayList<>();
+        List<VisualCue> visualCues = new ArrayList<>();
         int whiteInfluence = influence(attacks.get(Color.WHITE));
         int blackInfluence = influence(attacks.get(Color.BLACK));
 
@@ -40,6 +41,13 @@ public final class PatternAnalyzer {
             insights.put(square, new PieceInsight(square, piece, vision, moves, attackers, defenders, potential, summary));
 
             if (attackers > defenders && piece.type() != Type.KING) {
+                for (var attacker : board.pieces().entrySet()) {
+                    if (attacker.getValue().color() == piece.color().opposite()
+                            && vision(board, attacker.getKey()).contains(square)) {
+                        visualCues.add(new VisualCue(VisualCue.Type.PRESSURE, attacker.getKey(), square,
+                                "давление", piece.type().value + 2));
+                    }
+                }
                 patterns.add(new Pattern(Pattern.Severity.DANGER,
                         piece.type().russianName + " " + square.algebraic() + " под угрозой",
                         "Атак: " + attackers + ", защит: " + defenders + ". Фигура может быть потеряна — найдите уход, защиту или встречную угрозу.",
@@ -62,16 +70,26 @@ public final class PatternAnalyzer {
                         "Фигура использует мало направлений и почти не влияет на центр. Ищите активное поле, а не одиночный ход.",
                         square));
             }
+
+            if (potential >= 70 && piece.type() != Type.KING) {
+                visualCues.add(new VisualCue(VisualCue.Type.STRENGTH, square, square,
+                        "сила " + potential, potential));
+            } else if (potential <= 25 && piece.type().value >= 3) {
+                visualCues.add(new VisualCue(VisualCue.Type.WEAKNESS, square, square,
+                        "слабость " + potential, 100 - potential));
+            }
         }
 
         addLoosePieces(board, attacks, patterns);
         addCentralControl(attacks, patterns);
+        addSynergiesAndForks(board, visualCues, patterns);
         patterns.sort(Comparator.comparingInt(p -> p.severity().ordinal()));
         if (patterns.isEmpty()) {
             patterns.add(new Pattern(Pattern.Severity.INFO, "Позиция устойчива",
                     "Явных слабых фигур нет. Сравните худшую фигуру каждой стороны и улучшите её потенциал.", null));
         }
-        return new Analysis(insights, patterns, whiteInfluence, blackInfluence);
+        visualCues.sort(Comparator.comparingInt(VisualCue::weight).reversed());
+        return new Analysis(insights, patterns, visualCues, whiteInfluence, blackInfluence);
     }
 
     public Set<Square> vision(Board board, Square from) {
@@ -159,6 +177,42 @@ public final class PatternAnalyzer {
                     (leader == Color.WHITE ? "Белые" : "Чёрные") + " контролируют центр",
                     "Давление на четыре центральных поля: " + Math.max(white, black) + " против " + Math.min(white, black) +
                             ". Это даёт фигурам больше маршрутов и пространства.", null));
+        }
+    }
+
+    private void addSynergiesAndForks(Board board, List<VisualCue> cues, List<Pattern> patterns) {
+        for (var entry : board.pieces().entrySet()) {
+            Square from = entry.getKey();
+            Piece source = entry.getValue();
+            List<Square> valuableTargets = new ArrayList<>();
+            for (Square target : vision(board, from)) {
+                Piece targetPiece = board.get(target);
+                if (targetPiece == null) continue;
+                if (targetPiece.color() == source.color()) {
+                    if (!from.equals(target) && targetPiece.type() != Type.KING) {
+                        cues.add(new VisualCue(VisualCue.Type.SYNERGY, from, target,
+                                "защита", Math.max(1, targetPiece.type().value)));
+                    }
+                } else if (targetPiece.type().value >= 3 || targetPiece.type() == Type.KING) {
+                    valuableTargets.add(target);
+                }
+            }
+            if (valuableTargets.size() >= 2) {
+                int weight = valuableTargets.stream()
+                        .map(board::get)
+                        .mapToInt(p -> p.type() == Type.KING ? 10 : p.type().value)
+                        .sum();
+                for (Square target : valuableTargets) {
+                    cues.add(new VisualCue(VisualCue.Type.FORK, from, target, "вилка", weight));
+                }
+                String targets = valuableTargets.stream().limit(3)
+                        .map(Square::algebraic)
+                        .reduce((a, b) -> a + " и " + b).orElse("");
+                patterns.add(new Pattern(Pattern.Severity.OPPORTUNITY,
+                        "Двойное нападение с " + from.algebraic(),
+                        source.type().russianName + " одновременно смотрит на ценные цели " + targets +
+                                ". Проверьте, могут ли обе уйти или защититься одним темпом.", from));
+            }
         }
     }
 

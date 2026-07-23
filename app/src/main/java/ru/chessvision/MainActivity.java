@@ -29,8 +29,11 @@ public final class MainActivity extends Activity {
     private Analysis analysis;
     private BoardView boardView;
     private LinearLayout insights;
+    private LinearLayout moveHistory;
+    private LinearLayout overlayChips;
     private TextView positionSummary;
     private int exampleIndex;
+    private final List<String> moves = new ArrayList<>();
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -38,6 +41,9 @@ public final class MainActivity extends Activity {
         board = Fen.parse(START);
         analysis = analyzer.analyze(board);
         setContentView(buildScreen());
+        int savedTheme = getPreferences(MODE_PRIVATE).getInt("board_theme", 0);
+        BoardView.BoardTheme[] themes = BoardView.BoardTheme.values();
+        boardView.setTheme(themes[Math.max(0, Math.min(savedTheme, themes.length - 1))]);
         render();
     }
 
@@ -70,28 +76,40 @@ public final class MainActivity extends Activity {
         boardView.setListener(new BoardView.Listener() {
             @Override public void onSquareSelected(Square square) { renderSelected(square); }
             @Override public void onMoveRequested(Square from, Square to) {
+                Piece moving = board.get(from);
+                Piece captured = board.get(to);
+                moves.add(moveNotation(moving, from, to, captured));
                 board.move(from, to);
                 analysis = analyzer.analyze(board);
                 render();
             }
         });
 
+        root.addView(buildOverlaySelector());
+        root.addView(buildHistoryCard());
+
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         Button example = button("Другая позиция");
         Button fen = button("Вставить FEN");
+        Button theme = button("Оформление");
         actions.addView(example, weighted());
         LinearLayout.LayoutParams second = weighted();
         second.setMargins(dp(8), 0, 0, 0);
         actions.addView(fen, second);
+        LinearLayout.LayoutParams third = weighted();
+        third.setMargins(dp(8), 0, 0, 0);
+        actions.addView(theme, third);
         root.addView(actions);
         example.setOnClickListener(v -> {
             exampleIndex = (exampleIndex + 1) % EXAMPLES.length;
             board = Fen.parse(EXAMPLES[exampleIndex]);
+            moves.clear();
             analysis = analyzer.analyze(board);
             render();
         });
         fen.setOnClickListener(v -> showFenDialog());
+        theme.setOnClickListener(v -> showThemeDialog());
 
         TextView hint = text("Нажмите на фигуру: зелёным появится её поле зрения, точками — доступные поля. Красный ореол означает, что атак больше, чем защит.", 13, Color.rgb(151, 164, 151));
         hint.setPadding(0, dp(12), 0, dp(18));
@@ -112,6 +130,8 @@ public final class MainActivity extends Activity {
         positionSummary.setText("Ход " + side + "  ·  влияние: белые " + analysis.whiteInfluence() +
                 " / чёрные " + analysis.blackInfluence() + "\nКоснитесь фигуры, чтобы увидеть направления и потенциал.");
         showPatterns();
+        renderHistory();
+        renderOverlayChips();
     }
 
     private void showPatterns() {
@@ -192,12 +212,148 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Анализировать", (dialog, which) -> {
                     try {
                         board = Fen.parse(input.getText().toString());
+                        moves.clear();
                         analysis = analyzer.analyze(board);
                         render();
                     } catch (RuntimeException error) {
                         Toast.makeText(this, "Не удалось прочитать FEN: " + error.getMessage(), Toast.LENGTH_LONG).show();
                     }
                 }).show();
+    }
+
+    private View buildOverlaySelector() {
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+        params.setMargins(0, 0, 0, dp(10));
+        scroll.setLayoutParams(params);
+        overlayChips = new LinearLayout(this);
+        overlayChips.setOrientation(LinearLayout.HORIZONTAL);
+        overlayChips.setGravity(Gravity.CENTER_VERTICAL);
+        scroll.addView(overlayChips);
+        renderOverlayChips();
+        return scroll;
+    }
+
+    private void renderOverlayChips() {
+        if (overlayChips == null || boardView == null) return;
+        overlayChips.removeAllViews();
+        for (BoardView.OverlayMode mode : BoardView.OverlayMode.values()) {
+            boolean active = boardView.overlayMode() == mode;
+            TextView chip = text(mode.title, 13,
+                    active ? Color.rgb(20, 25, 21) : Color.rgb(206, 213, 204));
+            chip.setGravity(Gravity.CENTER);
+            chip.setTypeface(Typeface.DEFAULT, active ? Typeface.BOLD : Typeface.NORMAL);
+            chip.setPadding(dp(15), 0, dp(15), 0);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(active ? Color.rgb(183, 227, 107) : Color.rgb(25, 32, 27));
+            bg.setStroke(dp(1), active ? Color.rgb(183, 227, 107) : Color.rgb(55, 67, 57));
+            bg.setCornerRadius(dp(18));
+            chip.setBackground(bg);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(36));
+            p.setMargins(0, 0, dp(7), 0);
+            overlayChips.addView(chip, p);
+            chip.setOnClickListener(v -> {
+                boardView.setOverlayMode(mode);
+                renderOverlayChips();
+                showOverlayExplanation(mode);
+            });
+        }
+    }
+
+    private View buildHistoryCard() {
+        LinearLayout card = card();
+        LinearLayout.LayoutParams outer = (LinearLayout.LayoutParams) card.getLayoutParams();
+        outer.setMargins(0, 0, 0, dp(12));
+        TextView title = text("ИСТОРИЯ ПОЗИЦИИ", 10, Color.rgb(151, 164, 151));
+        title.setLetterSpacing(.12f);
+        card.addView(title);
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        moveHistory = new LinearLayout(this);
+        moveHistory.setOrientation(LinearLayout.HORIZONTAL);
+        moveHistory.setPadding(0, dp(9), 0, 0);
+        scroll.addView(moveHistory);
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, dp(50)));
+        renderHistory();
+        return card;
+    }
+
+    private void renderHistory() {
+        if (moveHistory == null) return;
+        moveHistory.removeAllViews();
+        if (moves.isEmpty()) {
+            TextView empty = text("Сделайте ход на доске — здесь появится история", 13, Color.rgb(127, 139, 127));
+            empty.setGravity(Gravity.CENTER_VERTICAL);
+            moveHistory.addView(empty, new LinearLayout.LayoutParams(-2, dp(40)));
+            return;
+        }
+        for (int i = 0; i < moves.size(); i += 2) {
+            LinearLayout pair = new LinearLayout(this);
+            pair.setOrientation(LinearLayout.HORIZONTAL);
+            pair.setGravity(Gravity.CENTER_VERTICAL);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.rgb(35, 44, 37));
+            bg.setCornerRadius(dp(8));
+            pair.setBackground(bg);
+            TextView number = text((i / 2 + 1) + ".", 12, Color.rgb(127, 139, 127));
+            number.setPadding(dp(9), 0, dp(6), 0);
+            pair.addView(number, new LinearLayout.LayoutParams(-2, dp(38)));
+            pair.addView(historyMove(moves.get(i)));
+            if (i + 1 < moves.size()) pair.addView(historyMove(moves.get(i + 1)));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(38));
+            p.setMargins(0, 0, dp(7), 0);
+            moveHistory.addView(pair, p);
+        }
+        moveHistory.post(() -> {
+            View parent = (View) moveHistory.getParent();
+            if (parent instanceof HorizontalScrollView scroll) scroll.fullScroll(View.FOCUS_RIGHT);
+        });
+    }
+
+    private TextView historyMove(String notation) {
+        TextView move = text(notation, 14, Color.rgb(238, 238, 231));
+        move.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        move.setGravity(Gravity.CENTER);
+        move.setPadding(dp(7), 0, dp(7), 0);
+        return move;
+    }
+
+    private String moveNotation(Piece piece, Square from, Square to, Piece captured) {
+        String symbol = switch (piece.type()) {
+            case KING -> "Кр";
+            case QUEEN -> "Ф";
+            case ROOK -> "Л";
+            case BISHOP -> "С";
+            case KNIGHT -> "К";
+            case PAWN -> "";
+        };
+        return symbol + from.algebraic() + (captured == null ? "–" : "×") + to.algebraic();
+    }
+
+    private void showThemeDialog() {
+        BoardView.BoardTheme[] themes = BoardView.BoardTheme.values();
+        String[] names = Arrays.stream(themes).map(t -> t.title).toArray(String[]::new);
+        new AlertDialog.Builder(this)
+                .setTitle("Оформление доски")
+                .setSingleChoiceItems(names, boardView.theme().ordinal(), (dialog, which) -> {
+                    boardView.setTheme(themes[which]);
+                    getPreferences(MODE_PRIVATE).edit().putInt("board_theme", which).apply();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Закрыть", null)
+                .show();
+    }
+
+    private void showOverlayExplanation(BoardView.OverlayMode mode) {
+        String explanation = switch (mode) {
+            case OVERVIEW -> "Общий обзор угроз. Выберите фигуру, чтобы увидеть её поле зрения.";
+            case FORKS -> "Жёлтые стрелки показывают фигуры, одновременно атакующие несколько ценных целей.";
+            case SYNERGY -> "Синие пунктирные линии показывают взаимную поддержку и защищённые фигуры.";
+            case PRESSURE -> "Красные стрелки ведут к фигурам, на которые атакующих больше, чем защитников.";
+            case POWER -> "Зелёное кольцо — активная фигура, красное — фигура с низким потенциалом.";
+        };
+        Toast.makeText(this, explanation, Toast.LENGTH_LONG).show();
     }
 
     private LinearLayout card() {

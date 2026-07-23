@@ -37,4 +37,24 @@ public class PatternAnalyzerTest {
         assertEquals(32, board.pieces().size());
         assertEquals(Piece.Type.KING, board.get(Square.fromAlgebraic("e1")).type());
     }
+
+    @Test public void detectsForkAndDrawsBothArrows() {
+        Board board = Fen.parse("4k3/8/3r1q2/8/4N3/8/8/7K w - - 0 1");
+        Analysis result = analyzer.analyze(board);
+        long forkArrows = result.visualCues().stream()
+                .filter(c -> c.type() == VisualCue.Type.FORK)
+                .filter(c -> c.from().equals(Square.fromAlgebraic("e4")))
+                .count();
+        assertEquals(2, forkArrows);
+        assertTrue(result.patterns().stream().anyMatch(p -> p.title().contains("Двойное нападение")));
+    }
+
+    @Test public void recordsDefensiveSynergy() {
+        Board board = Fen.parse("4k3/8/8/8/8/2B5/3R4/7K w - - 0 1");
+        Analysis result = analyzer.analyze(board);
+        assertTrue(result.visualCues().stream().anyMatch(c ->
+                c.type() == VisualCue.Type.SYNERGY
+                        && c.from().equals(Square.fromAlgebraic("c3"))
+                        && c.to().equals(Square.fromAlgebraic("d2"))));
+    }
 }
